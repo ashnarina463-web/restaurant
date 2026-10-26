@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reading list</title>
+<style>
+  :root {
+    --bg: #e6edef;
+    --panel: #f7fafb;
+    --ink: #14222e;
+    --muted: #5a6b76;
+    --teal: #2f6f73;
+    --gold: #e0a526;
+    --line: #c3d0d5;
+    --danger: #a3362b;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.5;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+  h1 { font-family: var(--serif); font-size: 2.6rem; line-height: 1.1; margin: 0 0 .4rem; }
+  .lede { color: var(--muted); margin: 0 0 2rem; }
+
+  form { display: grid; grid-template-columns: 1fr 1fr auto; gap: .6rem; margin-bottom: 1.5rem; }
+  input {
+    font: inherit; padding: .65rem .8rem; border: 1px solid var(--line);
+    background: var(--panel); border-radius: 6px; color: var(--ink); min-width: 0;
+  }
+  button { font: inherit; cursor: pointer; border-radius: 6px; }
+  .add { background: var(--ink); color: #fff; border: 0; padding: .65rem 1.1rem; }
+  .add:hover { background: var(--teal); }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  .error { color: var(--danger); min-height: 1.4em; margin: -.8rem 0 1rem; font-size: .95rem; }
+
+  .filters { display: flex; gap: .4rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .filters button {
+    background: transparent; border: 1px solid var(--line); color: var(--muted);
+    padding: .3rem .8rem;
+  }
+  .filters button[aria-pressed="true"] { background: var(--teal); border-color: var(--teal); color: #fff; }
+
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: grid; grid-template-columns: 8px 1fr auto auto; gap: .9rem; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: .8rem 1rem .8rem .8rem; margin-bottom: .5rem;
+  }
+  .spine { align-self: stretch; border-radius: 3px; background: var(--line); }
+  li[data-status="reading"] .spine { background: var(--gold); }
+  li[data-status="finished"] .spine { background: var(--teal); }
+  .title { font-family: var(--serif); font-size: 1.1rem; }
+  .author { color: var(--muted); font-size: .9rem; }
+  select {
+    font: inherit; padding: .3rem .4rem; border: 1px solid var(--line);
+    border-radius: 6px; background: #fff; color: var(--ink);
+  }
+  .del { background: transparent; border: 0; color: var(--muted); font-size: 1.2rem; padding: .2rem .5rem; }
+  .del:hover { color: var(--danger); }
+  .empty { color: var(--muted); padding: 1.5rem 0; }
+
+  @media (max-width: 520px) {
+    form { grid-template-columns: 1fr; }
+    li { grid-template-columns: 8px 1fr auto; }
+    li select { grid-column: 2; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Reading list</h1>
+  <p class="lede">Keep track of what you want to read, what you're reading, and what you've finished.</p>
+
+  <form id="add-form">
+    <input id="title" placeholder="Title" aria-label="Title" autocomplete="off">
+    <input id="author" placeholder="Author (optional)" aria-label="Author" autocomplete="off">
+    <button class="add" type="submit">Add book</button>
+  </form>
+  <div class="error" id="error" role="alert"></div>
+
+  <div class="filters" id="filters">
+    <button data-filter="all" aria-pressed="true">All</button>
+    <button data-filter="to-read" aria-pressed="false">To read</button>
+    <button data-filter="reading" aria-pressed="false">Reading</button>
+    <button data-filter="finished" aria-pressed="false">Finished</button>
+  </div>
+
+  <ul id="list"></ul>
+</main>
+
+<script>
+  const LABELS = { "to-read": "To read", reading: "Reading", finished: "Finished" };
+  let books = [];
+  let filter = "all";
+
+  const $ = (id) => document.getElementById(id);
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+    if (res.status === 204) return null;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Something went wrong.");
+    return data;
+  }
+
+  function render() {
+    const list = $("list");
+    list.innerHTML = "";
+    const shown = books.filter((b) => filter === "all" || b.status === filter);
+    if (!shown.length) {
+      const p = document.createElement("p");
+      p.className = "empty";
+      p.textContent = books.length
+        ? "No books with this status."
+        : "No books yet. Add the first one above.";
+      list.appendChild(p);
+      return;
+    }
+    for (const b of shown) {
+      const li = document.createElement("li");
+      li.dataset.status = b.status;
+
+      const spine = document.createElement("span");
+      spine.className = "spine";
+
+      const text = document.createElement("div");
+      const t = document.createElement("div");
+      t.className = "title";
+      t.textContent = b.title;
+      const a = document.createElement("div");
+      a.className = "author";
+      a.textContent = b.author || "Unknown author";
+      text.append(t, a);
+
+      const sel = document.createElement("select");
+      sel.setAttribute("aria-label", `Status for ${b.title}`);
+      for (const [value, label] of Object.entries(LABELS)) {
+        const o = new Option(label, value, false, value === b.status);
+        sel.add(o);
+      }
+      sel.addEventListener("change", () => setStatus(b.id, sel.value));
+
+      const del = document.createElement("button");
+      del.className = "del";
+      del.type = "button";
+      del.textContent = "\u00d7";
+      del.setAttribute("aria-label", `Delete ${b.title}`);
+      del.addEventListener("click", () => remove(b.id));
+
+      li.append(spine, text, sel, del);
+      list.appendChild(li);
+    }
+  }
+
+  function showError(msg) { $("error").textContent = msg || ""; }
+
+  async function load() {
+    try {
+      books = await api("/api/books");
+      render();
+    } catch (e) { showError(e.message); }
+  }
+
+  async function setStatus(id, status) {
+    try {
+      const updated = await api(`/api/books/${id}`, {
+        method: "PATCH", body: JSON.stringify({ status }),
+      });
+      books = books.map((b) => (b.id === id ? updated : b));
+      render();
+    } catch (e) { showError(e.message); }
+  }
+
+  async function remove(id) {
+    try {
+      await api(`/api/books/${id}`, { method: "DELETE" });
+      books = books.filter((b) => b.id !== id);
+      render();
+    } catch (e) { showError(e.message); }
+  }
+
+  $("add-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    showError("");
+    try {
+      const book = await api("/api/books", {
+        method: "POST",
+        body: JSON.stringify({ title: $("title").value, author: $("author").value }),
+      });
+      books.unshift(book);
+      $("title").value = "";
+      $("author").value = "";
+      $("title").focus();
+      render();
+    } catch (e) { showError(e.message); }
+  });
+
+  $("filters").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-filter]");
+    if (!btn) return;
+    filter = btn.dataset.filter;
+    for (const b of $("filters").children) {
+      b.setAttribute("aria-pressed", String(b === btn));
+    }
+    render();
+  });
+
+  load();
+</script>
+</body>
+</html>
